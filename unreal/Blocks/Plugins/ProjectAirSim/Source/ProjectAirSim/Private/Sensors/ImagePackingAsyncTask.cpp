@@ -39,8 +39,17 @@ void FImagePackingAsyncTask::DoWork() {
 
       uint8* DstPtr = ImgResponse.ImageDataUInt8.data();
       for (const auto& SrcPixel : RenderResult.UnrealImageFloat) {
-        float DepthMilli = SrcPixel.R.GetFloat(); 
-        uint16 DepthUint16 = static_cast<uint16>(DepthMilli);  
+        // The depth materials write METERS to R (SceneDepth cm / 100). The
+        // wire format is uint16 millimeters ("16UC1 ... mm" below), so
+        // convert; casting the raw meters value truncated depth to a 1 m
+        // quantization. Saturate at the uint16 ceiling (65.535 m) — sky /
+        // no-hit pixels are huge (or inf) and the bare cast wrapped them
+        // around into phantom finite depths.
+        float DepthMilli = SrcPixel.R.GetFloat() * 1000.0f;
+        uint16 DepthUint16 =
+            (!FMath::IsFinite(DepthMilli) || DepthMilli >= 65535.0f)
+                ? static_cast<uint16>(65535)
+                : static_cast<uint16>(DepthMilli);
         *DstPtr++ = static_cast<uint8>(DepthUint16 & 0xFF);        // least significant byte
         *DstPtr++ = static_cast<uint8>((DepthUint16 >> 8) & 0xFF);  // most significant byte
       }
